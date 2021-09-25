@@ -7,6 +7,7 @@ use pb::{EchoRequest, EchoResponse};
 use std::pin::Pin;
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status};
+use x509_parser::extensions::{ParsedExtension, GeneralName};
 
 type EchoResult<T> = Result<Response<T>, Status>;
 type ResponseStream = Pin<Box<dyn Stream<Item = Result<EchoResponse, Status>> + Send + Sync>>;
@@ -22,6 +23,23 @@ impl pb::echo_server::Echo for EchoServer {
             .expect("Client did not send its certs!");
 
         println!("Got {} peer certs!", certs.len());
+
+        let (_, client_certificate) = x509_parser::parse_x509_certificate(&certs[0].get_ref()).unwrap();
+
+        // the client's DN
+        println!("{}", client_certificate.subject());
+
+        // find email in SAN if available
+        for ext in client_certificate.extensions() {
+            let parsed_ext = ext.parsed_extension();
+            if let ParsedExtension::SubjectAlternativeName(san) = parsed_ext {
+                for name in &san.general_names {
+                    if let GeneralName::RFC822Name(email) = name {
+                        println!("found email SAN: {}", email);
+                    }
+                }
+            }
+        }
 
         let message = request.into_inner().message;
         Ok(Response::new(EchoResponse { message }))
